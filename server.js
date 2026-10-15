@@ -2,6 +2,40 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+// Detect if npm start was inadvertently run as part of Render's compound build command (e.g. npm start && npm run build)
+function detectBuildPhase() {
+  try {
+    let pid = process.pid;
+    for (let depth = 0; depth < 10 && pid > 1; depth++) {
+      const cmdPath = `/proc/${pid}/cmdline`;
+      if (fs.existsSync(cmdPath)) {
+        const cmdline = fs.readFileSync(cmdPath, 'utf8');
+        if (cmdline.includes('npm run build') || cmdline.includes('npm start &&') || cmdline.includes('npm start &') || cmdline.includes('build command')) {
+          console.log('Build step detected in parent shell. Exiting cleanly so Render build phase can complete.');
+          process.exit(0);
+        }
+      }
+      const statPath = `/proc/${pid}/stat`;
+      if (fs.existsSync(statPath)) {
+        const stat = fs.readFileSync(statPath, 'utf8');
+        const lastParen = stat.lastIndexOf(')');
+        if (lastParen !== -1) {
+          const rest = stat.substring(lastParen + 2).trim();
+          const ppid = parseInt(rest.split(/\s+/)[1], 10);
+          if (ppid && ppid !== pid) {
+            pid = ppid;
+            continue;
+          }
+        }
+      }
+      break;
+    }
+  } catch (err) {
+    // Non-Linux or unable to read /proc; continue to regular server start
+  }
+}
+detectBuildPhase();
+
 const PORT = process.env.PORT || 3000;
 
 const MIME_TYPES = {
