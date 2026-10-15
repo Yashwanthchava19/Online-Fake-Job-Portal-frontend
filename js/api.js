@@ -1,6 +1,6 @@
 /* Shared helpers: API client, session handling, navbar, small UI utilities.
    Change API_URL if the backend runs on another host/port. */
-const API_URL = "http://localhost:8080/api";
+const API_URL = window.API_URL || localStorage.getItem("fjd_api_url") || "http://localhost:8080/api";
 
 const Session = {
   get() { try { return JSON.parse(localStorage.getItem("fjd_session")); } catch (e) { return null; } },

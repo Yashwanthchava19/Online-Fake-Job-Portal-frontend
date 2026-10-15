@@ -1,0 +1,16 @@
+{
+  "name": "online-fake-job-portal-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for Online Fake Job Portal",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "echo 'Build completed successfully'"
+  },
+  "keywords": [
+    "job-portal",
+    "fake-job-detector"
+  ],
+  "author": "Yashwanth",
+  "license": "MIT"
+}
