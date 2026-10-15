@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recruiter dashboard - FakeJob Detector</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="css/style.css" rel="stylesheet">
+</head>
+<body>
+<div id="nav"></div>
+<main class="container my-4">
+  <div id="alert"></div>
+  <div class="row g-4">
+    <div class="col-lg-5">
+      <form id="jobForm" class="card shadow-sm card-body">
+        <h5>Post a new job</h5>
+        <div class="alert alert-secondary py-2 small">Every post is scanned for scam signals. Low-risk jobs go live instantly; others wait for admin review.</div>
+        <input id="title" class="form-control mb-2" placeholder="Job title" required>
+        <input id="company" class="form-control mb-2" placeholder="Company name" required>
+        <input id="location_" class="form-control mb-2" placeholder="Location" required>
+        <select id="jobType" class="form-select mb-2"><option>Full-time</option><option>Part-time</option><option>Internship</option><option>Contract</option></select>
+        <div class="row g-2 mb-2">
+          <div class="col"><input id="salMin" type="number" min="0" class="form-control" placeholder="Min salary / month ₹"></div>
+          <div class="col"><input id="salMax" type="number" min="0" class="form-control" placeholder="Max salary / month ₹"></div>
+        </div>
+        <input id="contact" type="email" class="form-control mb-2" placeholder="Contact email (company email preferred)" required>
+        <textarea id="desc" class="form-control mb-3" rows="7" minlength="30" placeholder="Responsibilities, requirements, selection process..." required></textarea>
+        <button class="btn btn-primary">Post job</button>
+      </form>
+      <div class="card shadow-sm mt-3 d-none" id="resultCard"><div class="card-body" id="result"></div></div>
+    </div>
+    <div class="col-lg-7">
+      <div class="card shadow-sm mb-3"><div class="card-body">
+        <h5>My jobs</h5>
+        <div class="table-responsive"><table class="table align-middle">
+          <thead><tr><th>Title</th><th>Status</th><th>Risk</th><th></th></tr></thead>
+          <tbody id="jobs"></tbody></table></div>
+      </div></div>
+      <div class="card shadow-sm d-none" id="appCard"><div class="card-body">
+        <h5 id="appTitle">Applicants</h5>
+        <div id="applicants"></div>
+      </div></div>
+    </div>
+  </div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="js/api.js"></script>
+<script>
+const me = requireRole("RECRUITER");
+renderNav();
+if (me) document.getElementById("company").value = me.companyName || "";
+
+async function loadJobs() {
+  try {
+    const jobs = await api("/recruiter/jobs");
+    document.getElementById("jobs").innerHTML = jobs.length ? jobs.map(j => `
+      <tr><td>${esc(j.title)}<div class="small text-muted">${esc(j.companyName)}</div></td>
+      <td>${statusBadge(j.status)}</td><td>${riskBadge(j.riskLevel, j.fraudScore)}</td>
+      <td class="text-nowrap"><button class="btn btn-sm btn-outline-primary" onclick="showApplicants(${j.id}, '${esc(j.title).replace(/'/g, "")}')">Applicants</button>
+      <button class="btn btn-sm btn-outline-danger" onclick="del(${j.id})">Delete</button></td></tr>`).join("")
+      : `<tr><td colspan="4" class="text-center text-muted">No jobs posted yet.</td></tr>`;
+  } catch (e) { showAlert("alert", e.message); }
+}
+document.getElementById("jobForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    const j = await api("/recruiter/jobs", { method: "POST", body: {
+      title: title.value, companyName: company.value, location: location_.value, jobType: jobType.value,
+      salaryMin: salMin.value ? Number(salMin.value) : null, salaryMax: salMax.value ? Number(salMax.value) : null,
+      contactEmail: contact.value, description: desc.value } });
+    const msg = { APPROVED: "Your job passed the scam check and is now live.",
+                  PENDING_REVIEW: "Your job needs admin review before it goes live.",
+                  REJECTED: "Your job was blocked because it looks like a scam." }[j.status];
+    document.getElementById("resultCard").classList.remove("d-none");
+    document.getElementById("result").innerHTML = `<h6>${statusBadge(j.status)} ${esc(msg)}</h6>` +
+      analysisHtml(j.riskLevel, j.fraudScore, null, j.reasons);
+    e.target.reset(); document.getElementById("company").value = me.companyName || "";
+    loadJobs();
+  } catch (err) { showAlert("alert", err.message); }
+});
+async function del(id) {
+  if (!confirm("Delete this job and its applications?")) return;
+  try { await api("/recruiter/jobs/" + id, { method: "DELETE" }); loadJobs();
+        document.getElementById("appCard").classList.add("d-none"); }
+  catch (e) { showAlert("alert", e.message); }
+}
+async function showApplicants(id, title) {
+  try {
+    const list = await api(`/recruiter/jobs/${id}/applicants`);
+    document.getElementById("appCard").classList.remove("d-none");
+    document.getElementById("appTitle").textContent = "Applicants - " + title;
+    document.getElementById("applicants").innerHTML = list.length ? list.map(a => `
+      <div class="border rounded p-3 mb-2">
+        <div class="d-flex justify-content-between"><strong>${esc(a.applicantName)}</strong>${statusBadge(a.status)}</div>
+        <div class="small text-muted">${esc(a.applicantEmail)} ${a.applicantPhone ? "&middot; " + esc(a.applicantPhone) : ""}</div>
+        ${a.applicantSkills ? `<div class="small">Skills: ${esc(a.applicantSkills)}</div>` : ""}
+        ${a.coverLetter ? `<p class="small mt-2 mb-2">${esc(a.coverLetter)}</p>` : ""}
+        <div class="btn-group btn-group-sm mt-1">
+          <button class="btn btn-outline-success" onclick="setStatus(${a.id}, 'SHORTLISTED', ${id}, '${esc(title).replace(/'/g, "")}')">Shortlist</button>
+          <button class="btn btn-outline-danger" onclick="setStatus(${a.id}, 'REJECTED', ${id}, '${esc(title).replace(/'/g, "")}')">Reject</button>
+        </div></div>`).join("") : `<p class="text-muted">No applicants yet.</p>`;
+  } catch (e) { showAlert("alert", e.message); }
+}
+async function setStatus(appId, status, jobId, title) {
+  try { await api(`/recruiter/applications/${appId}/status`, { method: "PUT", body: { status } }); showApplicants(jobId, title); }
+  catch (e) { showAlert("alert", e.message); }
+}
+if (me) loadJobs();
+</script>
+</body>
+</html>
